@@ -145,8 +145,9 @@ select {
 
 textarea {
     font-family: inherit;
-    overflow-y: hidden;
+    resize: none;
     color: var(--color);
+    max-height: calc(5lh + 10px);
 }
 
 input[type="text"]:focus,

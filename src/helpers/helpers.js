@@ -87,7 +87,7 @@ export async function handleLogin(request, env) {
 export async function handleSubscriptions(request, env) {
     const { subPath, pathName } = globalThis;
 
-    switch (pathName) {
+    switch (decodeURIComponent(pathName)) {
         case `/sub/normal/${subPath}`:
             return await getNormalSub(request, env);
 
@@ -132,11 +132,13 @@ async function resetSettings(request, env) {
 
 async function getSettings(request, env) {
     try {
-        const { proxySettings } = await getDataset(request, env);
         const pwd = await env.kv.get('pwd');
+        const auth = await Authenticate(request, env);
+        if (!auth) return await respond(false, 401, 'Unauthorized or expired session.', { isPassSet: pwd });
+        const { proxySettings } = await getDataset(request, env);
         const settings = {
             proxySettings,
-            isPassSet: pwd,
+            isPassSet: pwd ? true : false,
             subPath: globalThis.subPath
         };
 
@@ -242,7 +244,8 @@ async function renderPanel(request, env) {
         if (!auth) return Response.redirect(`${globalThis.urlOrigin}/login`, 302);
     }
 
-    return new Response(__PANEL_HTML_CONTENT__, {
+    const html = __PANEL_HTML_CONTENT__.replace(/__PANEL_VERSION__/g, globalThis.panelVersion);
+    return new Response(html, {
         headers: { 'Content-Type': 'text/html' }
     });
 }
@@ -250,19 +253,23 @@ async function renderPanel(request, env) {
 async function renderLogin(request, env) {
     const auth = await Authenticate(request, env);
     if (auth) return Response.redirect(`${globalThis.urlOrigin}/panel`, 302);
-    return new Response(__LOGIN_HTML_CONTENT__, {
+
+    const html = __LOGIN_HTML_CONTENT__.replace(/__PANEL_VERSION__/g, globalThis.panelVersion);
+    return new Response(html, {
         headers: { 'Content-Type': 'text/html' }
     });
 }
 
 export async function renderSecrets() {
-    return new Response(__SECRETS_HTML_CONTENT__, {
+    const html = __SECRETS_HTML_CONTENT__.replace(/__PANEL_VERSION__/g, globalThis.panelVersion);
+    return new Response(html, {
         headers: { 'Content-Type': 'text/html' },
     });
 }
 
 export async function renderError() {
-    return new Response(__ERROR_HTML_CONTENT__, {
+    const html = __ERROR_HTML_CONTENT__.replace(/__PANEL_VERSION__/g, globalThis.panelVersion);
+    return new Response(html, {
         status: 200,
         headers: { 'Content-Type': 'text/html' }
     });

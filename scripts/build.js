@@ -3,14 +3,10 @@ import { join, dirname as pathDirname } from 'path';
 import { fileURLToPath } from 'url';
 import { build } from 'esbuild';
 import { sync } from 'glob';
-import { minify } from 'html-minifier';
+import { minify as jsMinify } from 'terser';
+import { minify as htmlMinify } from 'html-minifier';
 import JSZip from "jszip";
 import obfs from 'javascript-obfuscator';
-import pkg from '../package.json' with { type: 'json' };
-
-const { version } = pkg;
-const { obfuscate } = obfs;
-const isObfuscate = true;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = pathDirname(__filename);
@@ -30,21 +26,21 @@ async function processHtmlPages() {
         const styleCode = readFileSync(base('style.css'), 'utf8');
         const scriptCode = readFileSync(base('script.js'), 'utf8');
 
+        const finalScriptCode = await jsMinify(scriptCode);
         const finalHtml = indexHtml
             .replace(/__STYLE__/g, `<style>${styleCode}</style>`)
-            .replace(/__SCRIPT__/g, scriptCode)
-            .replace(/__PANEL_VERSION__/g, version);
+            .replace(/__SCRIPT__/g, finalScriptCode.code);
 
-        const minifiedHtml = minify(finalHtml, {
+        const minifiedHtml = htmlMinify(finalHtml, {
             collapseWhitespace: true,
             removeAttributeQuotes: true,
-            minifyCSS: true,
-            minifyJS: true
+            minifyCSS: true
         });
 
         result[dir] = JSON.stringify(minifiedHtml);
     }
 
+    console.log('✅ Assets bundled successfuly!');
     return result;
 }
 
@@ -59,7 +55,6 @@ async function buildWorker() {
         bundle: true,
         format: 'esm',
         write: false,
-        minifySyntax: true,
         external: ['cloudflare:sockets'],
         platform: 'node',
         define: {
@@ -67,29 +62,39 @@ async function buildWorker() {
             __LOGIN_HTML_CONTENT__: htmls['login'] ?? '""',
             __ERROR_HTML_CONTENT__: htmls['error'] ?? '""',
             __SECRETS_HTML_CONTENT__: htmls['secrets'] ?? '""',
-            __ICON__: JSON.stringify(faviconBase64),
-            __PANEL_VERSION__: JSON.stringify(version)
+            __ICON__: JSON.stringify(faviconBase64)
+        }
+    });
+    
+    console.log('✅ Worker built successfuly!');
+
+    const minifiedCode = await jsMinify(code.outputFiles[0].text, {
+        module: true,
+        output: {
+            comments: false
         }
     });
 
-    console.log('✅ Assets bundled successfuly!');
+    console.log('✅ Worker minified successfuly!');
 
-    const obfuscationResult = obfuscate(code.outputFiles[0].text, {
-        "stringArrayThreshold": 1,
-        "stringArrayEncoding": [
+    const obfuscationResult = obfs.obfuscate(minifiedCode.code, {
+        stringArrayThreshold: 1,
+        stringArrayEncoding: [
             "rc4"
         ],
-        "numbersToExpressions": true,
-        "transformObjectKeys": true,
-        "renameGlobals": true,
-        "deadCodeInjection": true,
-        "deadCodeInjectionThreshold": 0.3,
-        "simplify": true,
-        "compact": true,
-        "target": "node"
+        numbersToExpressions: true,
+        transformObjectKeys: true,
+        renameGlobals: true,
+        deadCodeInjection: true,
+        deadCodeInjectionThreshold: 0.2,
+        simplify: true,
+        compact: true,
+        target: "node"
     });
 
-    const worker = isObfuscate ? obfuscationResult.getObfuscatedCode() : code.outputFiles[0].text;
+    const worker = obfuscationResult.getObfuscatedCode();
+    console.log('✅ Worker obfuscated successfuly!');
+
     mkdirSync(DIST_PATH, { recursive: true });
     writeFileSync('./dist/worker.js', worker, 'utf8');
 
@@ -100,7 +105,7 @@ async function buildWorker() {
         compression: 'DEFLATE'
     }).then(nodebuffer => writeFileSync('./dist/worker.zip', nodebuffer));
 
-    console.log('✅ Worker built successfuly!');
+    console.log('✅ Worker files published successfuly!');
 }
 
 buildWorker().catch(err => {
